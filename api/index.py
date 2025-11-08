@@ -248,46 +248,106 @@ def monthly_metrics():
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
-    """Análise com fallback (sem Gemini por enquanto para reduzir dependências)"""
+    """Análise inteligente com Google Gemini AI"""
     try:
         body = request.get_json()
-        question = body.get('message', '').lower()
+        question = body.get('message', '')
         
-        # Buscar dados
-        data, error = query_supabase('produto,quantidade,data', limit=100)
+        if not question:
+            return jsonify({'answer': '❌ Por favor, faça uma pergunta.'}), 200
+        
+        # Buscar dados de vendas (limitar a 200 registros para o Gemini)
+        data, error = query_supabase('produto,quantidade,receita_total,data,categoria,regiao', max_records=200)
         
         if error or not data:
             return jsonify({
                 'answer': '❌ Não foi possível acessar os dados. Verifique a conexão com o Supabase.'
             }), 200
         
-        # Análise simples baseada em palavras-chave
-        if 'janeiro' in question and ('vendido' in question or 'produto' in question):
-            # Filtrar dados de janeiro
-            jan_produtos = {}
-            for row in data:
-                try:
-                    data_str = row.get('data', '')
-                    if '-01-' in data_str:  # Janeiro
-                        prod = row.get('produto', 'Desconhecido')
-                        qty = float(str(row.get('quantidade', 0)).replace(',', '.'))
-                        jan_produtos[prod] = jan_produtos.get(prod, 0) + qty
-                except:
-                    continue
+        # TENTATIVA 1: Usar Gemini AI
+        try:
+            # Import dinâmico (só carrega quando necessário)
+            import google.generativeai as genai
             
-            if jan_produtos:
-                top_prod = max(jan_produtos, key=jan_produtos.get)
-                qty = int(jan_produtos[top_prod])
-                return jsonify({
-                    'answer': f'📊 **Análise de Janeiro**\n\nO produto mais vendido em Janeiro foi **{top_prod}** com {qty} unidades vendidas.'
-                }), 200
-        
-        # Resposta genérica
-        return jsonify({
-            'answer': '📊 Sua pergunta foi recebida. Esta versão usa dados reais do Supabase, mas ainda não tem integração completa com IA. Por favor, seja específico sobre qual mês ou produto deseja analisar.'
-        }), 200
+            gemini_key = os.getenv('GEMINI_API_KEY')
+            if not gemini_key:
+                raise Exception("GEMINI_API_KEY não configurada")
+            
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            
+            # Preparar contexto com dados
+            context = "Você é um analista de vendas especializado. Aqui estão alguns dados de vendas:\n\n"
+            for i, row in enumerate(data[:50]):  # Primeiros 50 registros
+                context += f"- {row.get('data', 'N/A')}: {row.get('produto', 'N/A')}, "
+                context += f"Qtd: {row.get('quantidade', 0)}, "
+                context += f"Receita: R$ {row.get('receita_total', 0)}, "
+                context += f"Categoria: {row.get('categoria', 'N/A')}, "
+                context += f"Região: {row.get('regiao', 'N/A')}\n"
+            
+            context += f"\nTotal de registros disponíveis: {len(data)}\n\n"
+            context += f"Pergunta do usuário: {question}\n\n"
+            context += "Responda em português de forma clara e objetiva, usando os dados fornecidos. "
+            context += "Se a pergunta for sobre um mês específico, analise apenas os dados daquele mês. "
+            context += "Sempre formate valores monetários como R$ X.XXX,XX."
+            
+            response = model.generate_content(context)
+            
+            return jsonify({'answer': response.text}), 200
+            
+        except Exception as gemini_error:
+            print(f"Erro no Gemini: {str(gemini_error)}")
+            
+            # FALLBACK: Análise simples sem IA
+            question_lower = question.lower()
+            
+            # Detectar mês na pergunta
+            meses = {
+                'janeiro': '-01-', 'fevereiro': '-02-', 'março': '-03-', 'marco': '-03-',
+                'abril': '-04-', 'maio': '-05-', 'junho': '-06-',
+                'julho': '-07-', 'agosto': '-08-', 'setembro': '-09-',
+                'outubro': '-10-', 'novembro': '-11-', 'dezembro': '-12-'
+            }
+            
+            mes_filtro = None
+            mes_nome = None
+            for nome_mes, filtro in meses.items():
+                if nome_mes in question_lower:
+                    mes_filtro = filtro
+                    mes_nome = nome_mes.capitalize()
+                    break
+            
+            # Se pergunta sobre produto mais vendido
+            if 'vendido' in question_lower or 'produto' in question_lower:
+                produtos_qty = {}
+                
+                for row in data:
+                    data_str = row.get('data', '')
+                    
+                    # Filtrar por mês se especificado
+                    if mes_filtro and mes_filtro not in data_str:
+                        continue
+                    
+                    prod = row.get('produto', 'Desconhecido')
+                    qty = float(str(row.get('quantidade', 0)).replace(',', '.'))
+                    produtos_qty[prod] = produtos_qty.get(prod, 0) + qty
+                
+                if produtos_qty:
+                    top_prod = max(produtos_qty, key=produtos_qty.get)
+                    qty = int(produtos_qty[top_prod])
+                    
+                    periodo = f" em {mes_nome}" if mes_nome else " no período analisado"
+                    return jsonify({
+                        'answer': f'📊 **Análise de Vendas**\n\nO produto mais vendido{periodo} foi **{top_prod}** com **{qty} unidades** vendidas.'
+                    }), 200
+            
+            # Resposta genérica
+            return jsonify({
+                'answer': f'📊 Recebi sua pergunta: "{question}"\n\nNo momento, estou com dificuldades para processar com IA. Tente perguntas como:\n- "Qual produto foi mais vendido em Janeiro?"\n- "Qual o total de vendas em Março?"\n- "Quais produtos mais vendidos?"'
+            }), 200
         
     except Exception as e:
+        print(f"ERRO NO /api/analyze: {str(e)}")
         return jsonify({'answer': f'❌ Erro ao processar pergunta: {str(e)}'}), 200
 
 @app.route('/api/diagnostic', methods=['GET'])
