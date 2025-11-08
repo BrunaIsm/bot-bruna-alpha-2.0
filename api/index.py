@@ -643,6 +643,97 @@ def upload_data():
             'error': f'Erro no upload: {str(e)}'
         }), 500
 
+@app.route('/api/clear-data', methods=['POST'])
+def clear_data():
+    """Limpa dados do banco - aceita filtros por arquivo ou limpa tudo"""
+    try:
+        body = request.get_json() or {}
+        filename = body.get('filename')  # Nome do arquivo específico (opcional)
+        confirm = body.get('confirm', False)  # Segurança: requer confirmação
+        
+        if not confirm:
+            return jsonify({
+                'error': 'Operação cancelada. Envie {"confirm": true} para confirmar a exclusão.'
+            }), 400
+        
+        url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+        headers = {
+            'apikey': SUPABASE_KEY,
+            'Authorization': f'Bearer {SUPABASE_KEY}',
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+        }
+        
+        # Se especificou arquivo, deleta apenas ele
+        if filename:
+            # Remover extensão se foi enviada
+            filename_clean = os.path.splitext(filename)[0]
+            params = {'mes_origem': f'eq.{filename_clean}'}
+            
+            # Verificar quantos registros serão deletados
+            check_params = {'select': 'mes_origem', 'mes_origem': f'eq.{filename_clean}'}
+            check_response = requests.get(url, headers=headers, params=check_params, timeout=5)
+            count = len(check_response.json()) if check_response.status_code == 200 else 0
+            
+            if count == 0:
+                return jsonify({
+                    'success': False,
+                    'error': f'Nenhum registro encontrado com o arquivo "{filename_clean}"'
+                }), 404
+            
+            # Deletar
+            response = requests.delete(url, headers=headers, params=params, timeout=10)
+            
+            if response.status_code == 204:
+                return jsonify({
+                    'success': True,
+                    'message': f'✅ {count} registros do arquivo "{filename_clean}" foram deletados',
+                    'rows_deleted': count,
+                    'filename': filename_clean
+                }), 200
+        else:
+            # Deletar TODOS os registros (cuidado!)
+            # Primeiro, contar quantos existem
+            check_response = requests.get(
+                url, 
+                headers={**headers, 'Range': '0-0'}, 
+                params={'select': 'mes_origem'},
+                timeout=5
+            )
+            
+            # Pegar o total do header Content-Range
+            content_range = check_response.headers.get('Content-Range', '0-0/0')
+            total = int(content_range.split('/')[-1]) if '/' in content_range else 0
+            
+            if total == 0:
+                return jsonify({
+                    'success': True,
+                    'message': 'Banco já está vazio',
+                    'rows_deleted': 0
+                }), 200
+            
+            # Deletar todos (sem filtro)
+            response = requests.delete(url, headers=headers, timeout=30)
+            
+            if response.status_code == 204:
+                return jsonify({
+                    'success': True,
+                    'message': f'⚠️ TODOS os {total} registros foram deletados do banco!',
+                    'rows_deleted': total
+                }), 200
+        
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao deletar dados'
+        }), 500
+        
+    except Exception as e:
+        print(f"ERRO AO LIMPAR DADOS: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Erro ao limpar dados: {str(e)}'
+        }), 500
+
 @app.route('/api/database-stats', methods=['GET'])
 def database_stats():
     """Retorna estatísticas do banco de dados"""
