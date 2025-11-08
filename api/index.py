@@ -164,6 +164,116 @@ def metrics():
             'last_updated': datetime.utcnow().strftime('%d/%m/%Y %H:%M')
         }), 200
 
+@app.route('/api/monthly-metrics', methods=['GET'])
+def monthly_metrics():
+    """Retorna métricas detalhadas por mês"""
+    try:
+        client, error = get_supabase_client()
+        if error:
+            raise Exception(error)
+        
+        # Buscar todos os dados
+        all_rows = []
+        page_size = 1000
+        start = 0
+        
+        while True:
+            resp = client.table(TABLE_NAME).select('*').range(start, start + page_size - 1).execute()
+            rows = resp.data or []
+            all_rows.extend(rows)
+            if len(rows) < page_size:
+                break
+            start += page_size
+        
+        if not all_rows:
+            return jsonify({'no_data': True, 'months': []}), 200
+        
+        # Agregação por mês
+        meses_pt = {
+            1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril',
+            5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto',
+            9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'
+        }
+        
+        dados_por_mes = {}
+        
+        for row in all_rows:
+            try:
+                data_str = row.get('data')
+                if not data_str:
+                    continue
+                
+                dt = datetime.fromisoformat(str(data_str)[:10])
+                mes_key = f"{dt.year}-{dt.month:02d}"
+                mes_nome = f"{meses_pt[dt.month]}/{dt.year}"
+                
+                if mes_key not in dados_por_mes:
+                    dados_por_mes[mes_key] = {
+                        'mes': mes_nome,
+                        'mes_numero': dt.month,
+                        'ano': dt.year,
+                        'receita': 0.0,
+                        'quantidade_vendas': 0,
+                        'produtos': {}
+                    }
+                
+                produto = row.get('produto', 'Desconhecido')
+                qty = float(str(row.get('quantidade', 0)).replace(',', '.'))
+                receita = float(str(row.get('receita_total', 0)).replace(',', '.'))
+                
+                dados_por_mes[mes_key]['receita'] += receita
+                dados_por_mes[mes_key]['quantidade_vendas'] += 1
+                dados_por_mes[mes_key]['produtos'][produto] = dados_por_mes[mes_key]['produtos'].get(produto, 0) + qty
+                
+            except:
+                continue
+        
+        # Formatar resultado
+        def fmt_currency(value):
+            return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        
+        resultado = []
+        for mes_key in sorted(dados_por_mes.keys()):
+            dados = dados_por_mes[mes_key]
+            
+            # Produto mais vendido do mês
+            if dados['produtos']:
+                prod_top = max(dados['produtos'].items(), key=lambda x: x[1])
+                top_5_produtos = sorted(dados['produtos'].items(), key=lambda x: x[1], reverse=True)[:5]
+            else:
+                prod_top = ('Sem dados', 0)
+                top_5_produtos = []
+            
+            resultado.append({
+                'mes': dados['mes'],
+                'mes_numero': dados['mes_numero'],
+                'ano': dados['ano'],
+                'receita': fmt_currency(dados['receita']),
+                'receita_valor': dados['receita'],
+                'quantidade_vendas': dados['quantidade_vendas'],
+                'produto_mais_vendido': {
+                    'nome': prod_top[0],
+                    'quantidade': int(prod_top[1])
+                },
+                'top_5_produtos': [
+                    {'nome': p[0], 'quantidade': int(p[1])} 
+                    for p in top_5_produtos
+                ]
+            })
+        
+        return jsonify({
+            'no_data': False,
+            'total_meses': len(resultado),
+            'months': resultado
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'no_data': True,
+            'months': []
+        }), 200
+
 def analyze_data_smart(all_data, question):
     """Análise inteligente dos dados baseada em palavras-chave - SEM ALUCINAÇÕES"""
     question_lower = question.lower()
@@ -211,11 +321,11 @@ def analyze_data_smart(all_data, question):
             if data_str:
                 dt = datetime.fromisoformat(str(data_str)[:10])
                 mes_nome = f"{meses_pt[dt.month]}/{dt.year}"
-                mes_simples = meses_pt[dt.month]
+                mes_simples = meses_pt[dt.month].lower()  # Normalizar para minúsculas
                 
                 receita_por_mes[mes_nome] = receita_por_mes.get(mes_nome, 0.0) + receita
                 
-                # Agregar produtos por mês
+                # Agregar produtos por mês (usar lowercase para comparação)
                 if mes_simples not in produtos_por_mes:
                     produtos_por_mes[mes_simples] = {}
                 produtos_por_mes[mes_simples][produto] = produtos_por_mes[mes_simples].get(produto, 0) + qty
@@ -224,14 +334,24 @@ def analyze_data_smart(all_data, question):
     
     # NOVA: Análise de produto em mês específico
     for mes_nome, mes_num in meses_nomes.items():
-        if mes_nome in question_lower and any(word in question_lower for word in ['produto', 'vendido', 'vendeu']):
-            mes_key = meses_pt[mes_num]
-            if mes_key in produtos_por_mes:
-                produtos_mes = produtos_por_mes[mes_key]
+        if mes_nome in question_lower and any(word in question_lower for word in ['produto', 'vendido', 'vendeu', 'mais vendido']):
+            if mes_nome in produtos_por_mes:
+                produtos_mes = produtos_por_mes[mes_nome]
                 if produtos_mes:
-                    prod_top = max(produtos_mes.items(), key=lambda x: x[1])
-                    return f"📊 **Análise de {mes_key}/2024**\n\nO produto mais vendido foi **{prod_top[0]}** com **{int(prod_top[1])} unidades** comercializadas.\n\nEste produto liderou as vendas neste período específico."
-            return f"⚠️ Não encontrei dados de vendas para {mes_key} de 2024 na base de dados atual."
+                    # Top 5 produtos do mês
+                    top_produtos = sorted(produtos_mes.items(), key=lambda x: x[1], reverse=True)[:5]
+                    prod_top = top_produtos[0]
+                    
+                    resultado = f"📊 **Análise de {meses_pt[mes_num]}/2024**\n\n"
+                    resultado += f"O produto **mais vendido** foi **{prod_top[0]}** com **{int(prod_top[1])} unidades** comercializadas.\n\n"
+                    
+                    if len(top_produtos) > 1:
+                        resultado += "**Top 5 produtos do mês:**\n"
+                        for i, (prod, qty) in enumerate(top_produtos, 1):
+                            resultado += f"{i}. {prod}: {int(qty)} un\n"
+                    
+                    return resultado.strip()
+            return f"⚠️ Não encontrei dados de vendas para {meses_pt[mes_num]} de 2024 na base de dados atual."
     
     # Análises baseadas em palavras-chave
     if any(word in question_lower for word in ['mês', 'mes', 'maior receita', 'melhor mes', 'melhor mês']):
@@ -357,6 +477,7 @@ def analyze():
                 receita_por_categoria = {}
                 receita_por_regiao = {}
                 qty_por_produto = {}
+                produtos_por_mes = {}  # Nova: produtos por mês
                 receita_total = 0.0
                 produtos_unicos = set()
                 
@@ -388,7 +509,14 @@ def analyze():
                         if data_str:
                             dt = datetime.fromisoformat(str(data_str)[:10])
                             mes_nome = f"{meses_pt[dt.month]}/{dt.year}"
+                            mes_simples = meses_pt[dt.month]
+                            
                             receita_por_mes[mes_nome] = receita_por_mes.get(mes_nome, 0.0) + receita
+                            
+                            # Agregar produtos por mês
+                            if mes_simples not in produtos_por_mes:
+                                produtos_por_mes[mes_simples] = {}
+                            produtos_por_mes[mes_simples][produto] = produtos_por_mes[mes_simples].get(produto, 0) + qty
                     except:
                         continue
                 
@@ -397,6 +525,14 @@ def analyze():
                 top_3_categorias = sorted(receita_por_categoria.items(), key=lambda x: x[1], reverse=True)[:3]
                 top_3_regioes = sorted(receita_por_regiao.items(), key=lambda x: x[1], reverse=True)[:3]
                 melhor_mes = max(receita_por_mes.items(), key=lambda x: x[1]) if receita_por_mes else ("N/A", 0)
+                
+                # Preparar top produtos por mês (para consultas mensais)
+                produtos_mensais_info = ""
+                for mes in ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
+                           'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']:
+                    if mes in produtos_por_mes and produtos_por_mes[mes]:
+                        top_prod_mes = max(produtos_por_mes[mes].items(), key=lambda x: x[1])
+                        produtos_mensais_info += f"{mes}: {top_prod_mes[0]} ({int(top_prod_mes[1])} un) | "
                 
                 # Contexto OTIMIZADO (apenas dados essenciais)
                 contexto = f"""DADOS 2024 (BASE: {len(all_data)} registros):
@@ -411,7 +547,10 @@ TOP 3 CATEGORIAS (por receita):
 TOP 3 REGIÕES (por receita):
 {chr(10).join([f"{i+1}. {r}: R$ {v:,.2f}" for i, (r, v) in enumerate(top_3_regioes)])}
 
-MELHOR MÊS: {melhor_mes[0]} - R$ {melhor_mes[1]:,.2f}"""
+MELHOR MÊS: {melhor_mes[0]} - R$ {melhor_mes[1]:,.2f}
+
+PRODUTO MAIS VENDIDO POR MÊS (em quantidade):
+{produtos_mensais_info.strip(' |')}"""
                 
                 model = genai.GenerativeModel('gemini-2.5-flash')
                 prompt = f"""Você é um assistente de análise de vendas especializado. Analise os dados abaixo e responda de forma clara, profissional e objetiva.
@@ -460,10 +599,10 @@ Responda agora:"""
 def upload_data():
     """Upload de planilhas Excel/CSV para o Supabase"""
     try:
-        # Importações dinâmicas
-        import pandas as pd
+        # Importações dinâmicas (apenas quando necessário para evitar timeout no Vercel)
+        import pandas as pd  # type: ignore
         import io
-        from unidecode import unidecode
+        from unidecode import unidecode  # type: ignore
         import re
         
         # Verificar arquivo

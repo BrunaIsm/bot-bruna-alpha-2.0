@@ -43,6 +43,9 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.venv/
+venv/
+env/
 
 # PyInstaller
 *.manifest
