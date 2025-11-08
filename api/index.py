@@ -387,9 +387,19 @@ def analyze():
                 context += f"- {regiao}: {int(total_reg)} unidades | Receita: {fmt_currency(receita_reg)}\n"
             
             context += f"\n❓ PERGUNTA DO USUÁRIO: {question}\n\n"
-            context += "Responda em português de forma clara e objetiva, usando EXATAMENTE os dados agregados fornecidos acima. "
-            context += "Se a pergunta for sobre um mês específico, analise apenas os dados daquele mês. "
-            context += "Sempre formate valores monetários como R$ X.XXX,XX."
+            context += """INSTRUÇÕES DE FORMATAÇÃO:
+- Use emojis relevantes para tornar a resposta mais visual e atrativa (📊 📈 💰 🏆 🎯 ⭐ 🔥 etc)
+- Destaque números importantes com **negrito**
+- Use títulos e subtítulos com ##
+- Organize dados em listas com bullets (•) ou numeração
+- Compare valores quando relevante (X% maior que Y)
+- Formate valores monetários como R$ X.XXX,XX
+- Seja entusiasmado e positivo no tom
+- Se possível, adicione insights ou observações interessantes
+- Use quebras de linha para facilitar leitura
+
+Responda em português de forma CLARA, VISUAL e ENVOLVENTE, usando EXATAMENTE os dados agregados fornecidos acima.
+"""
             
             response = model.generate_content(context)
             
@@ -436,15 +446,59 @@ def analyze():
                     top_prod = max(produtos_qty, key=produtos_qty.get)
                     qty = int(produtos_qty[top_prod])
                     
-                    periodo = f" em {mes_nome}" if mes_nome else " no período analisado"
-                    return jsonify({
-                        'answer': f'📊 **Análise de Vendas**\n\nO produto mais vendido{periodo} foi **{top_prod}** com **{qty} unidades** vendidas.'
-                    }), 200
+                    # Top 3 para comparação
+                    top_3 = sorted(produtos_qty.items(), key=lambda x: x[1], reverse=True)[:3]
+                    
+                    periodo = f" em **{mes_nome}**" if mes_nome else " no **período analisado**"
+                    
+                    answer = f"""🏆 **PRODUTO CAMPEÃO DE VENDAS** 🏆
+
+## 🥇 Produto Mais Vendido{periodo}
+
+**{top_prod}**
+📦 **{qty} unidades** vendidas
+
+---
+
+### 📊 Top 3 Produtos:
+"""
+                    for i, (prod, q) in enumerate(top_3, 1):
+                        emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
+                        answer += f"{emoji} **{prod}**: {int(q)} unidades\n"
+                    
+                    return jsonify({'answer': answer}), 200
             
             # Resposta genérica
-            return jsonify({
-                'answer': f'📊 Recebi sua pergunta: "{question}"\n\nNo momento, estou com dificuldades para processar com IA. Tente perguntas como:\n- "Qual produto foi mais vendido em Janeiro?"\n- "Qual o total de vendas em Março?"\n- "Quais produtos mais vendidos?"'
-            }), 200
+            answer = f"""🤔 **Hmm, preciso de mais contexto!**
+
+Recebi sua pergunta: *"{question}"*
+
+Infelizmente, estou com dificuldades para processar essa análise no momento. Mas não se preocupe! 💪
+
+### 💡 Experimente perguntas como:
+
+🔹 **Por Produto:**
+• "Qual produto foi mais vendido em Janeiro?"
+• "Quais os top 5 produtos do ano?"
+• "Compare vendas de Notebook vs Mouse"
+
+🔹 **Por Região:**
+• "Qual região vendeu mais?"
+• "Compare receita do Sul e Norte"
+• "Qual a receita total da região Sudeste?"
+
+🔹 **Por Mês:**
+• "Qual foi o melhor mês de vendas?"
+• "Mostre as vendas de Março"
+• "Compare Janeiro e Fevereiro"
+
+🔹 **Por Categoria:**
+• "Qual categoria gerou mais receita?"
+• "Quantas unidades de Eletrônicos foram vendidas?"
+
+💬 **Dica:** Seja específico nas perguntas para obter respostas mais precisas!
+"""
+            return jsonify({'answer': answer}), 200
         
     except Exception as e:
         print(f"ERRO NO /api/analyze: {str(e)}")
