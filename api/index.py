@@ -57,8 +57,8 @@ def metrics():
         if error:
             raise Exception(error)
         
-        # Buscar TODOS os dados de uma vez (limite 10000 registros para evitar timeout)
-        resp = client.table(TABLE_NAME).select('*').limit(10000).execute()
+        # Buscar apenas campos necessários para reduzir payload e tempo
+        resp = client.table(TABLE_NAME).select('produto,quantidade,receita_total,data').limit(5000).execute()
         all_rows = resp.data or []
         
         if not all_rows:
@@ -167,8 +167,8 @@ def monthly_metrics():
         if error:
             raise Exception(error)
         
-        # Buscar TODOS os dados de uma vez (limite 10000 registros)
-        resp = client.table(TABLE_NAME).select('*').limit(10000).execute()
+        # Buscar apenas campos necessários
+        resp = client.table(TABLE_NAME).select('produto,quantidade,receita_total,data').limit(5000).execute()
         all_rows = resp.data or []
         
         if not all_rows:
