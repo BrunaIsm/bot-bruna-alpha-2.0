@@ -776,6 +776,79 @@ def database_stats():
             'total_records': 0
         }), 500
 
+@app.route('/api/list-files', methods=['GET'])
+def list_files():
+    """Lista todos os arquivos (mes_origem) com quantidade de registros"""
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+        headers = {
+            'apikey': SUPABASE_KEY,
+            'Authorization': f'Bearer {SUPABASE_KEY}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Buscar apenas mes_origem e created_at
+        params = {'select': 'mes_origem,created_at'}
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            raise Exception(f'Erro ao buscar arquivos: {response.text}')
+        
+        data = response.json()
+        
+        if not data:
+            return jsonify({
+                'success': True,
+                'files': [],
+                'total_files': 0,
+                'message': 'Nenhum arquivo encontrado no banco'
+            }), 200
+        
+        # Agrupar por mes_origem e contar
+        files_dict = {}
+        for row in data:
+            mes_origem = row.get('mes_origem', 'Desconhecido')
+            created_at = row.get('created_at', '')
+            
+            if mes_origem not in files_dict:
+                files_dict[mes_origem] = {
+                    'name': mes_origem,
+                    'count': 0,
+                    'first_upload': created_at,
+                    'is_protected': mes_origem == PROTECTED_FILE
+                }
+            
+            files_dict[mes_origem]['count'] += 1
+            # Manter a data mais antiga
+            if created_at < files_dict[mes_origem]['first_upload']:
+                files_dict[mes_origem]['first_upload'] = created_at
+        
+        # Converter para lista e ordenar
+        files_list = sorted(files_dict.values(), key=lambda x: x['first_upload'])
+        
+        # Formatar datas
+        for file_info in files_list:
+            try:
+                dt = datetime.fromisoformat(file_info['first_upload'].replace('Z', '+00:00'))
+                file_info['uploaded_at'] = dt.strftime('%d/%m/%Y %H:%M')
+            except:
+                file_info['uploaded_at'] = 'Data desconhecida'
+            del file_info['first_upload']
+        
+        return jsonify({
+            'success': True,
+            'files': files_list,
+            'total_files': len(files_list),
+            'protected_file': PROTECTED_FILE
+        }), 200
+        
+    except Exception as e:
+        print(f"ERRO AO LISTAR ARQUIVOS: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Erro ao listar arquivos: {str(e)}'
+        }), 500
+
 @app.route('/api/diagnostic', methods=['GET'])
 def diagnostic():
     """Diagnóstico"""
