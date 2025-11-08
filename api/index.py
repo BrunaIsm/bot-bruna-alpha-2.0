@@ -15,6 +15,9 @@ SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 TABLE_NAME = os.getenv('SUPABASE_TABLE_NAME', 'vendas_2024')
 
+# ARQUIVO BASE PROTEGIDO (não pode ser deletado)
+PROTECTED_FILE = 'vendas_2024_completo'
+
 def query_supabase(select_fields='*', max_records=10000):
     """Query direta na API REST do Supabase com paginação automática"""
     try:
@@ -645,10 +648,11 @@ def upload_data():
 
 @app.route('/api/clear-data', methods=['POST'])
 def clear_data():
-    """Limpa dados do banco - aceita filtros por arquivo ou limpa tudo"""
+    """Limpa dados do banco - PROTEGE arquivo base e deleta apenas uploads de teste"""
     try:
         body = request.get_json() or {}
         filename = body.get('filename')  # Nome do arquivo específico (opcional)
+        clear_all_tests = body.get('clear_all_tests', False)  # Deletar todos os testes
         confirm = body.get('confirm', False)  # Segurança: requer confirmação
         
         if not confirm:
@@ -664,10 +668,18 @@ def clear_data():
             'Prefer': 'return=minimal'
         }
         
-        # Se especificou arquivo, deleta apenas ele
+        # OPÇÃO 1: Deletar arquivo específico (com proteção)
         if filename:
-            # Remover extensão se foi enviada
             filename_clean = os.path.splitext(filename)[0]
+            
+            # 🔒 PROTEÇÃO: Não permitir deletar arquivo base
+            if filename_clean == PROTECTED_FILE:
+                return jsonify({
+                    'success': False,
+                    'error': f'❌ Arquivo "{PROTECTED_FILE}" é protegido e não pode ser deletado!',
+                    'protected': True
+                }), 403
+            
             params = {'mes_origem': f'eq.{filename_clean}'}
             
             # Verificar quantos registros serão deletados
@@ -691,36 +703,40 @@ def clear_data():
                     'rows_deleted': count,
                     'filename': filename_clean
                 }), 200
-        else:
-            # Deletar TODOS os registros (cuidado!)
-            # Primeiro, contar quantos existem
-            check_response = requests.get(
-                url, 
-                headers={**headers, 'Range': '0-0'}, 
-                params={'select': 'mes_origem'},
-                timeout=5
-            )
+        
+        # OPÇÃO 2: Deletar TODOS os uploads de teste (mantém arquivo base protegido)
+        elif clear_all_tests:
+            # Deletar tudo EXCETO o arquivo protegido
+            params = {'mes_origem': f'neq.{PROTECTED_FILE}'}
             
-            # Pegar o total do header Content-Range
-            content_range = check_response.headers.get('Content-Range', '0-0/0')
-            total = int(content_range.split('/')[-1]) if '/' in content_range else 0
+            # Contar quantos serão deletados
+            check_params = {'select': 'mes_origem', 'mes_origem': f'neq.{PROTECTED_FILE}'}
+            check_response = requests.get(url, headers=headers, params=check_params, timeout=5)
+            count = len(check_response.json()) if check_response.status_code == 200 else 0
             
-            if total == 0:
+            if count == 0:
                 return jsonify({
                     'success': True,
-                    'message': 'Banco já está vazio',
+                    'message': f'✅ Nenhum dado de teste para deletar. Arquivo base "{PROTECTED_FILE}" permanece intacto.',
                     'rows_deleted': 0
                 }), 200
             
-            # Deletar todos (sem filtro)
-            response = requests.delete(url, headers=headers, timeout=30)
+            # Deletar todos EXCETO protegido
+            response = requests.delete(url, headers=headers, params=params, timeout=30)
             
             if response.status_code == 204:
                 return jsonify({
                     'success': True,
-                    'message': f'⚠️ TODOS os {total} registros foram deletados do banco!',
-                    'rows_deleted': total
+                    'message': f'✅ {count} registros de teste deletados! Arquivo base "{PROTECTED_FILE}" (2.600 registros) permanece protegido.',
+                    'rows_deleted': count,
+                    'protected_file_kept': PROTECTED_FILE
                 }), 200
+        else:
+            # Se não especificou nada, retornar erro
+            return jsonify({
+                'success': False,
+                'error': 'Especifique "filename" para deletar arquivo específico ou "clear_all_tests": true para deletar todos os testes.'
+            }), 400
         
         return jsonify({
             'success': False,
