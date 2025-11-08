@@ -143,11 +143,15 @@ def metrics():
         }), 200
         
     except Exception as e:
+        print(f"ERRO NO /api/metrics: {str(e)}")  # Log para debugging
+        import traceback
+        traceback.print_exc()  # Print full traceback
+        
         return jsonify({
             'error': str(e),
             'no_data': True,
-            'melhor_mes': {'nome': 'Erro', 'valor': 'R$ 0,00'},
-            'produto_mais_vendido': {'nome': 'Erro', 'quantidade': 0},
+            'melhor_mes': {'nome': 'Erro ao carregar', 'valor': 'R$ 0,00'},
+            'produto_mais_vendido': {'nome': 'Erro ao carregar', 'quantidade': 0},
             'quantidade_produtos': 0,
             'vendas_totais_ano': 'R$ 0,00',
             'files_processed': 0,
