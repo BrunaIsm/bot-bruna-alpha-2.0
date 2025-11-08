@@ -388,17 +388,18 @@ def analyze():
             
             context += f"\n❓ PERGUNTA DO USUÁRIO: {question}\n\n"
             context += """INSTRUÇÕES DE FORMATAÇÃO:
-- Use emojis relevantes para tornar a resposta mais visual e atrativa (📊 📈 💰 🏆 🎯 ⭐ 🔥 etc)
+- Responda de forma DIRETA focando apenas na pergunta
+- Use emojis com moderação (2-3 no máximo: 📊 💰 🏆 🎯 ⭐)
 - Destaque números importantes com **negrito**
-- Use títulos e subtítulos com ##
-- Organize dados em listas com bullets (•) ou numeração
-- Compare valores quando relevante (X% maior que Y)
-- Formate valores monetários como R$ X.XXX,XX
-- Seja entusiasmado e positivo no tom
-- Se possível, adicione insights ou observações interessantes
-- Use quebras de linha para facilitar leitura
+- Se pedirem ranking/lista: mostre TOP 5 no máximo
+- Formate valores: R$ X.XXX,XX
+- Seja entusiasmado mas CONCISO (máximo 2-3 parágrafos pequenos)
+- Use um título ## apenas se necessário
+- NÃO mostre análise completa se perguntarem algo específico
+- Organize dados em lista quando mostrar múltiplos itens
 
-Responda em português de forma CLARA, VISUAL e ENVOLVENTE, usando EXATAMENTE os dados agregados fornecidos acima.
+IMPORTANTE: Responda APENAS o que foi perguntado. Se perguntarem sobre 1 produto, não liste todos os 20.
+Se perguntarem sobre 1 mês, não mostre os 12 meses. Seja visual mas OBJETIVO.
 """
             
             response = model.generate_content(context)
