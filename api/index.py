@@ -15,18 +15,18 @@ SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 TABLE_NAME = os.getenv('SUPABASE_TABLE_NAME', 'vendas_2024')
 
-def query_supabase(select_fields='*', limit=5000):
+def query_supabase(select_fields='*', limit=10000):
     """Query direta na API REST do Supabase sem SDK"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
         headers = {
             'apikey': SUPABASE_KEY,
             'Authorization': f'Bearer {SUPABASE_KEY}',
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Range': f'0-{limit-1}'  # Header Range para forçar o limite
         }
         params = {
-            'select': select_fields,
-            'limit': limit
+            'select': select_fields
         }
         
         response = requests.get(url, headers=headers, params=params, timeout=8)
@@ -52,8 +52,8 @@ def health():
 def metrics():
     """Retorna métricas do Supabase usando requests direto"""
     try:
-        # Buscar apenas campos necessários
-        data, error = query_supabase('produto,quantidade,receita_total,data', limit=5000)
+        # Buscar todos os registros (até 10000)
+        data, error = query_supabase('produto,quantidade,receita_total,data')
         
         if error:
             raise Exception(error)
@@ -154,7 +154,7 @@ def metrics():
 def monthly_metrics():
     """Retorna métricas detalhadas por mês"""
     try:
-        data, error = query_supabase('produto,quantidade,receita_total,data', limit=5000)
+        data, error = query_supabase('produto,quantidade,receita_total,data')
         
         if error or not data:
             return jsonify({'no_data': True, 'months': []}), 200
