@@ -57,18 +57,9 @@ def metrics():
         if error:
             raise Exception(error)
         
-        # Buscar dados com paginação
-        all_rows = []
-        page_size = 1000
-        start = 0
-        
-        while True:
-            resp = client.table(TABLE_NAME).select('*').range(start, start + page_size - 1).execute()
-            rows = resp.data or []
-            all_rows.extend(rows)
-            if len(rows) < page_size:
-                break
-            start += page_size
+        # Buscar TODOS os dados de uma vez (limite 10000 registros para evitar timeout)
+        resp = client.table(TABLE_NAME).select('*').limit(10000).execute()
+        all_rows = resp.data or []
         
         if not all_rows:
             return jsonify({
@@ -172,18 +163,9 @@ def monthly_metrics():
         if error:
             raise Exception(error)
         
-        # Buscar todos os dados
-        all_rows = []
-        page_size = 1000
-        start = 0
-        
-        while True:
-            resp = client.table(TABLE_NAME).select('*').range(start, start + page_size - 1).execute()
-            rows = resp.data or []
-            all_rows.extend(rows)
-            if len(rows) < page_size:
-                break
-            start += page_size
+        # Buscar TODOS os dados de uma vez (limite 10000 registros)
+        resp = client.table(TABLE_NAME).select('*').limit(10000).execute()
+        all_rows = resp.data or []
         
         if not all_rows:
             return jsonify({'no_data': True, 'months': []}), 200
