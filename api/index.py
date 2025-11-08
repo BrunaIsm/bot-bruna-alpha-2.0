@@ -481,16 +481,135 @@ def upload_data():
         if file_ext not in allowed_extensions:
             return jsonify({'error': f'Formato não suportado. Use: {", ".join(allowed_extensions)}'}), 400
         
-        # Por enquanto, simular upload bem-sucedido
-        # TODO: Implementar lógica de parse e inserção no Supabase
+        # Importar pandas apenas quando necessário (evita overhead no cold start)
+        import pandas as pd
+        from io import BytesIO
+        import unicodedata
+        
+        # Ler arquivo
+        file_content = file.read()
+        
+        if file_ext == '.csv':
+            df = pd.read_csv(BytesIO(file_content))
+        else:  # .xlsx ou .xls
+            df = pd.read_excel(BytesIO(file_content))
+        
+        if df.empty:
+            return jsonify({'error': 'Arquivo vazio ou sem dados válidos'}), 400
+        
+        # Função para normalizar nomes de colunas
+        def normalize_column_name(col):
+            # Remove acentos
+            col = ''.join(c for c in unicodedata.normalize('NFD', str(col)) 
+                         if unicodedata.category(c) != 'Mn')
+            # Lowercase e substitui espaços por _
+            return col.lower().replace(' ', '_').replace('-', '_')
+        
+        # Normalizar nomes das colunas
+        df.columns = [normalize_column_name(col) for col in df.columns]
+        
+        # Mapear possíveis variações de nomes de colunas
+        column_mapping = {
+            'id_transacao': ['id_transacao', 'id', 'transacao', 'id_venda'],
+            'data': ['data', 'date', 'dt_venda', 'data_venda'],
+            'produto': ['produto', 'product', 'item', 'descricao'],
+            'categoria': ['categoria', 'category', 'tipo'],
+            'regiao': ['regiao', 'region', 'estado', 'uf'],
+            'quantidade': ['quantidade', 'qtd', 'quantity', 'qtde'],
+            'preco_unitario': ['preco_unitario', 'preco', 'price', 'valor_unitario'],
+            'receita_total': ['receita_total', 'total', 'valor_total', 'receita']
+        }
+        
+        # Encontrar colunas equivalentes
+        final_columns = {}
+        for target_col, possible_names in column_mapping.items():
+            for col in df.columns:
+                if col in possible_names:
+                    final_columns[col] = target_col
+                    break
+        
+        # Renomear colunas
+        df.rename(columns=final_columns, inplace=True)
+        
+        # Validar colunas obrigatórias
+        required_columns = ['data', 'produto', 'quantidade', 'receita_total']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            return jsonify({
+                'error': f'Colunas obrigatórias faltando: {", ".join(missing_columns)}',
+                'found_columns': list(df.columns)
+            }), 400
+        
+        # Preencher colunas opcionais com valores padrão
+        if 'id_transacao' not in df.columns:
+            df['id_transacao'] = [f'TXN{i:06d}' for i in range(len(df))]
+        if 'categoria' not in df.columns:
+            df['categoria'] = 'Sem categoria'
+        if 'regiao' not in df.columns:
+            df['regiao'] = 'Não especificada'
+        if 'preco_unitario' not in df.columns:
+            df['preco_unitario'] = df['receita_total'] / df['quantidade']
+        
+        # Converter tipos de dados
+        # Datas
+        df['data'] = pd.to_datetime(df['data'], errors='coerce')
+        
+        # Números (aceita vírgula como decimal)
+        for col in ['quantidade', 'preco_unitario', 'receita_total']:
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).str.replace(',', '.').str.replace(r'[^\d.]', '', regex=True)
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Remover linhas com dados inválidos
+        df.dropna(subset=['data', 'produto', 'quantidade', 'receita_total'], inplace=True)
+        
+        if df.empty:
+            return jsonify({'error': 'Nenhuma linha válida encontrada após validação'}), 400
+        
+        # Adicionar metadados
+        df['mes_origem'] = os.path.splitext(file.filename)[0]
+        df['created_at'] = datetime.now().isoformat()
+        
+        # Converter para formato JSON para inserção no Supabase
+        records = df.to_dict('records')
+        
+        # Formatar data para ISO string
+        for record in records:
+            if pd.notna(record.get('data')):
+                record['data'] = record['data'].strftime('%Y-%m-%d')
+        
+        # Inserir no Supabase em lotes (max 1000 por vez)
+        url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+        headers = {
+            'apikey': SUPABASE_KEY,
+            'Authorization': f'Bearer {SUPABASE_KEY}',
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+        }
+        
+        total_inserted = 0
+        batch_size = 1000
+        
+        for i in range(0, len(records), batch_size):
+            batch = records[i:i + batch_size]
+            response = requests.post(url, headers=headers, json=batch, timeout=30)
+            
+            if response.status_code not in [200, 201]:
+                raise Exception(f'Erro ao inserir lote {i//batch_size + 1}: {response.text}')
+            
+            total_inserted += len(batch)
+        
         return jsonify({
             'success': True,
-            'message': f'✅ Arquivo "{file.filename}" recebido com sucesso!',
-            'rows_imported': 0,  # Temporário - implementar contagem real
-            'filename': file.filename
+            'message': f'✅ {total_inserted} linhas importadas com sucesso!',
+            'rows_imported': total_inserted,
+            'filename': file.filename,
+            'columns_found': list(df.columns)
         }), 200
         
     except Exception as e:
+        print(f"ERRO NO UPLOAD: {str(e)}")
         return jsonify({
             'success': False,
             'error': f'Erro no upload: {str(e)}'
