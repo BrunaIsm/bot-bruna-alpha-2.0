@@ -15,9 +15,6 @@ SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 TABLE_NAME = os.getenv('SUPABASE_TABLE_NAME', 'vendas_2024')
 
-# ARQUIVO BASE PROTEGIDO (não pode ser deletado)
-PROTECTED_FILE = 'vendas_2024_completo'
-
 def query_supabase(select_fields='*', max_records=10000):
     """Query direta na API REST do Supabase com paginação automática"""
     try:
@@ -388,18 +385,40 @@ def analyze():
             
             context += f"\n❓ PERGUNTA DO USUÁRIO: {question}\n\n"
             context += """INSTRUÇÕES DE FORMATAÇÃO:
-- Responda de forma DIRETA focando apenas na pergunta
+- Responda de forma COMPLETA mas DIRETA, focando na pergunta
 - Use emojis com moderação (2-3 no máximo: 📊 💰 🏆 🎯 ⭐)
 - Destaque números importantes com **negrito**
-- Se pedirem ranking/lista: mostre TOP 5 no máximo
 - Formate valores: R$ X.XXX,XX
-- Seja entusiasmado mas CONCISO (máximo 2-3 parágrafos pequenos)
-- Use um título ## apenas se necessário
-- NÃO mostre análise completa se perguntarem algo específico
-- Organize dados em lista quando mostrar múltiplos itens
+- Seja entusiasmado mas CONCISO (máximo 3-4 parágrafos)
+- SEMPRE use bullet points "•" para listas, NUNCA use asteriscos "*"
+- Organize dados de forma visual e limpa
 
-IMPORTANTE: Responda APENAS o que foi perguntado. Se perguntarem sobre 1 produto, não liste todos os 20.
-Se perguntarem sobre 1 mês, não mostre os 12 meses. Seja visual mas OBJETIVO.
+REGRAS IMPORTANTES:
+1. Se perguntarem "quais produtos", "que produtos", "quais são": SEMPRE liste os nomes
+2. Se perguntarem "quantos produtos": responda o número E liste os nomes
+3. Se perguntarem sobre ranking/top: mostre TOP 5 com valores
+4. Se perguntarem sobre 1 produto específico: seja detalhado sobre aquele produto
+5. Se perguntarem sobre 1 mês específico: foque apenas naquele mês
+6. Se perguntarem comparação: compare os dados relevantes
+
+FORMATO DE RESPOSTA:
+- Comece com um resumo curto (1 linha com número em negrito)
+- Liste itens usando "•" (bullet point) seguido de espaço
+- Se tiver valores/quantidades, mostre após o nome: "• Produto: X unidades"
+- Adicione um insight breve no final (1 frase)
+
+Exemplo CORRETO de formatação:
+"Foram vendidos **25 produtos diferentes**:
+
+• Produto A: 150 unidades
+• Produto B: 120 unidades
+• Produto C: 95 unidades
+
+💡 Insight: Grande variedade de produtos no portfólio!"
+
+NUNCA use este formato ERRADO:
+"* Produto A
+* Produto B"
 """
             
             response = model.generate_content(context)
@@ -622,13 +641,18 @@ def upload_data():
         # Remover linhas com dados inválidos
         df.dropna(subset=['data', 'produto', 'quantidade', 'receita_total'], inplace=True)
         
+        print(f"📊 Após validação: {len(df)} linhas válidas")
+        
         if df.empty:
             return jsonify({'error': 'Nenhuma linha válida encontrada após validação'}), 400
         
-        # Adicionar metadados
-        filename_without_ext = os.path.splitext(file.filename)[0]
-        df['mes_origem'] = filename_without_ext
-        df['created_at'] = datetime.now().isoformat()
+        # Selecionar apenas as colunas que existem na tabela
+        valid_columns = ['data', 'id_transacao', 'produto', 'categoria', 'regiao', 
+                        'quantidade', 'preco_unitario', 'receita_total']
+        df = df[valid_columns]
+        
+        print(f"📝 Colunas selecionadas: {list(df.columns)}")
+        print(f"📋 Primeira linha: {df.iloc[0].to_dict() if len(df) > 0 else 'VAZIO'}")
         
         # Converter para formato JSON para inserção no Supabase
         records = df.to_dict('records')
@@ -638,7 +662,7 @@ def upload_data():
             if pd.notna(record.get('data')):
                 record['data'] = record['data'].strftime('%Y-%m-%d')
         
-        # VERIFICAR SE JÁ EXISTE ARQUIVO COM MESMO NOME (evitar duplicatas)
+        # Inserir direto no Supabase
         url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
         headers = {
             'apikey': SUPABASE_KEY,
@@ -647,49 +671,33 @@ def upload_data():
             'Prefer': 'return=minimal'
         }
         
-        # Verificar se já existe dados deste arquivo
-        check_url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
-        check_params = {
-            'select': 'mes_origem',
-            'mes_origem': f'eq.{filename_without_ext}',
-            'limit': 1
-        }
-        check_response = requests.get(check_url, headers=headers, params=check_params, timeout=5)
-        
-        rows_deleted = 0
-        if check_response.status_code == 200 and check_response.json():
-            # Arquivo já existe! Deletar dados antigos antes de inserir novos
-            delete_params = {'mes_origem': f'eq.{filename_without_ext}'}
-            delete_response = requests.delete(url, headers=headers, params=delete_params, timeout=10)
-            
-            if delete_response.status_code == 204:
-                rows_deleted = len(check_response.json())
-                print(f"✅ Deletados dados antigos do arquivo '{filename_without_ext}'")
-        
         # Inserir no Supabase em lotes (max 1000 por vez)
         total_inserted = 0
         batch_size = 1000
         
+        print(f"🚀 Iniciando inserção de {len(records)} registros...")
+        
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
+            print(f"📤 Enviando lote {i//batch_size + 1} com {len(batch)} registros...")
             response = requests.post(url, headers=headers, json=batch, timeout=30)
             
+            print(f"📥 Resposta: Status {response.status_code}")
+            
             if response.status_code not in [200, 201]:
+                print(f"❌ ERRO: {response.text}")
                 raise Exception(f'Erro ao inserir lote {i//batch_size + 1}: {response.text}')
             
             total_inserted += len(batch)
+            print(f"✅ Lote {i//batch_size + 1} inserido! Total: {total_inserted}")
         
-        # Mensagem personalizada
-        if rows_deleted > 0:
-            message = f'✅ Arquivo atualizado! {total_inserted} linhas inseridas (substituiu dados anteriores)'
-        else:
-            message = f'✅ {total_inserted} linhas importadas com sucesso!'
+        # Mensagem de sucesso
+        message = f'✅ {total_inserted} linhas importadas com sucesso!'
         
         return jsonify({
             'success': True,
             'message': message,
             'rows_imported': total_inserted,
-            'rows_replaced': rows_deleted > 0,
             'filename': file.filename,
             'columns_found': list(df.columns)
         }), 200
@@ -703,107 +711,12 @@ def upload_data():
 
 @app.route('/api/clear-data', methods=['POST'])
 def clear_data():
-    """Limpa dados do banco - PROTEGE arquivo base e deleta apenas uploads de teste"""
-    try:
-        body = request.get_json() or {}
-        filename = body.get('filename')  # Nome do arquivo específico (opcional)
-        clear_all_tests = body.get('clear_all_tests', False)  # Deletar todos os testes
-        confirm = body.get('confirm', False)  # Segurança: requer confirmação
-        
-        if not confirm:
-            return jsonify({
-                'error': 'Operação cancelada. Envie {"confirm": true} para confirmar a exclusão.'
-            }), 400
-        
-        url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
-        headers = {
-            'apikey': SUPABASE_KEY,
-            'Authorization': f'Bearer {SUPABASE_KEY}',
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
-        }
-        
-        # OPÇÃO 1: Deletar arquivo específico (com proteção)
-        if filename:
-            filename_clean = os.path.splitext(filename)[0]
-            
-            # 🔒 PROTEÇÃO: Não permitir deletar arquivo base
-            if filename_clean == PROTECTED_FILE:
-                return jsonify({
-                    'success': False,
-                    'error': f'❌ Arquivo "{PROTECTED_FILE}" é protegido e não pode ser deletado!',
-                    'protected': True
-                }), 403
-            
-            params = {'mes_origem': f'eq.{filename_clean}'}
-            
-            # Verificar quantos registros serão deletados
-            check_params = {'select': 'mes_origem', 'mes_origem': f'eq.{filename_clean}'}
-            check_response = requests.get(url, headers=headers, params=check_params, timeout=5)
-            count = len(check_response.json()) if check_response.status_code == 200 else 0
-            
-            if count == 0:
-                return jsonify({
-                    'success': False,
-                    'error': f'Nenhum registro encontrado com o arquivo "{filename_clean}"'
-                }), 404
-            
-            # Deletar
-            response = requests.delete(url, headers=headers, params=params, timeout=10)
-            
-            if response.status_code == 204:
-                return jsonify({
-                    'success': True,
-                    'message': f'✅ {count} registros do arquivo "{filename_clean}" foram deletados',
-                    'rows_deleted': count,
-                    'filename': filename_clean
-                }), 200
-        
-        # OPÇÃO 2: Deletar TODOS os uploads de teste (mantém arquivo base protegido)
-        elif clear_all_tests:
-            # Deletar tudo EXCETO o arquivo protegido
-            params = {'mes_origem': f'neq.{PROTECTED_FILE}'}
-            
-            # Contar quantos serão deletados
-            check_params = {'select': 'mes_origem', 'mes_origem': f'neq.{PROTECTED_FILE}'}
-            check_response = requests.get(url, headers=headers, params=check_params, timeout=5)
-            count = len(check_response.json()) if check_response.status_code == 200 else 0
-            
-            if count == 0:
-                return jsonify({
-                    'success': True,
-                    'message': f'✅ Nenhum dado de teste para deletar. Arquivo base "{PROTECTED_FILE}" permanece intacto.',
-                    'rows_deleted': 0
-                }), 200
-            
-            # Deletar todos EXCETO protegido
-            response = requests.delete(url, headers=headers, params=params, timeout=30)
-            
-            if response.status_code == 204:
-                return jsonify({
-                    'success': True,
-                    'message': f'✅ {count} registros de teste deletados! Arquivo base "{PROTECTED_FILE}" (2.600 registros) permanece protegido.',
-                    'rows_deleted': count,
-                    'protected_file_kept': PROTECTED_FILE
-                }), 200
-        else:
-            # Se não especificou nada, retornar erro
-            return jsonify({
-                'success': False,
-                'error': 'Especifique "filename" para deletar arquivo específico ou "clear_all_tests": true para deletar todos os testes.'
-            }), 400
-        
-        return jsonify({
-            'success': False,
-            'error': 'Erro ao deletar dados'
-        }), 500
-        
-    except Exception as e:
-        print(f"ERRO AO LIMPAR DADOS: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': f'Erro ao limpar dados: {str(e)}'
-        }), 500
+    """Endpoint desabilitado - tabela não tem coluna mes_origem para controle de arquivos"""
+    return jsonify({
+        'success': False,
+        'error': 'Funcionalidade de limpeza desabilitada. A tabela vendas_2024 não possui rastreamento de arquivos individuais.',
+        'info': 'Para limpar dados, use SQL direto no Supabase: DELETE FROM vendas_2024;'
+    }), 501  # Not Implemented
 
 @app.route('/api/database-stats', methods=['GET'])
 def database_stats():
@@ -833,68 +746,45 @@ def database_stats():
 
 @app.route('/api/list-files', methods=['GET'])
 def list_files():
-    """Lista todos os arquivos (mes_origem) com quantidade de registros"""
+    """Retorna informações sobre os dados no banco (sem mes_origem na tabela)"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
         headers = {
             'apikey': SUPABASE_KEY,
             'Authorization': f'Bearer {SUPABASE_KEY}',
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Prefer': 'count=exact'
         }
         
-        # Buscar apenas mes_origem e created_at
-        params = {'select': 'mes_origem,created_at'}
+        # Buscar contagem total
+        params = {'select': 'id_transacao', 'limit': 1}
         response = requests.get(url, headers=headers, params=params, timeout=10)
         
         if response.status_code != 200:
-            raise Exception(f'Erro ao buscar arquivos: {response.text}')
+            raise Exception(f'Erro ao buscar dados: {response.text}')
         
-        data = response.json()
+        # Pegar contagem do header Content-Range
+        content_range = response.headers.get('Content-Range', '0-0/0')
+        total_count = int(content_range.split('/')[-1]) if '/' in content_range else 0
         
-        if not data:
+        if total_count == 0:
             return jsonify({
                 'success': True,
                 'files': [],
-                'total_files': 0,
-                'message': 'Nenhum arquivo encontrado no banco'
+                'total_records': 0,
+                'message': 'Nenhum dado encontrado no banco'
             }), 200
-        
-        # Agrupar por mes_origem e contar
-        files_dict = {}
-        for row in data:
-            mes_origem = row.get('mes_origem', 'Desconhecido')
-            created_at = row.get('created_at', '')
-            
-            if mes_origem not in files_dict:
-                files_dict[mes_origem] = {
-                    'name': mes_origem,
-                    'count': 0,
-                    'first_upload': created_at,
-                    'is_protected': mes_origem == PROTECTED_FILE
-                }
-            
-            files_dict[mes_origem]['count'] += 1
-            # Manter a data mais antiga
-            if created_at < files_dict[mes_origem]['first_upload']:
-                files_dict[mes_origem]['first_upload'] = created_at
-        
-        # Converter para lista e ordenar
-        files_list = sorted(files_dict.values(), key=lambda x: x['first_upload'])
-        
-        # Formatar datas
-        for file_info in files_list:
-            try:
-                dt = datetime.fromisoformat(file_info['first_upload'].replace('Z', '+00:00'))
-                file_info['uploaded_at'] = dt.strftime('%d/%m/%Y %H:%M')
-            except:
-                file_info['uploaded_at'] = 'Data desconhecida'
-            del file_info['first_upload']
         
         return jsonify({
             'success': True,
-            'files': files_list,
-            'total_files': len(files_list),
-            'protected_file': PROTECTED_FILE
+            'files': [{
+                'name': 'vendas_2024',
+                'count': total_count,
+                'uploaded_at': 'Dados consolidados',
+                'is_protected': False
+            }],
+            'total_records': total_count,
+            'message': f'{total_count} registros no banco'
         }), 200
         
     except Exception as e:
