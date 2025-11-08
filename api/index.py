@@ -335,7 +335,18 @@ def analyze():
             def fmt_currency(value):
                 return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             
+            # Calcular totais gerais
+            receita_total_ano = sum(receita_por_mes.values())
+            quantidade_produtos_diferentes = len(produtos_total)
+            quantidade_total_vendida = sum(produtos_total.values())
+            
             context = f"""Você é um analista de vendas especializado. Aqui está o RESUMO COMPLETO de {len(data)} registros de vendas de 2024:
+
+📈 RESUMO GERAL DO ANO:
+- Total de registros analisados: {len(data)}
+- Receita total do ano: {fmt_currency(receita_total_ano)}
+- Quantidade de produtos diferentes vendidos: {quantidade_produtos_diferentes}
+- Quantidade total de unidades vendidas: {int(quantidade_total_vendida)}
 
 📊 RECEITA POR MÊS:
 """
