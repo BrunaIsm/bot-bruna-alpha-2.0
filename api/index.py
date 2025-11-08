@@ -15,23 +15,40 @@ SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 TABLE_NAME = os.getenv('SUPABASE_TABLE_NAME', 'vendas_2024')
 
-def query_supabase(select_fields='*', limit=10000):
-    """Query direta na API REST do Supabase sem SDK"""
+def query_supabase(select_fields='*', max_records=10000):
+    """Query direta na API REST do Supabase com paginação automática"""
     try:
-        url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
-        headers = {
-            'apikey': SUPABASE_KEY,
-            'Authorization': f'Bearer {SUPABASE_KEY}',
-            'Content-Type': 'application/json',
-            'Range': f'0-{limit-1}'  # Header Range para forçar o limite
-        }
-        params = {
-            'select': select_fields
-        }
+        all_data = []
+        page_size = 1000
+        offset = 0
         
-        response = requests.get(url, headers=headers, params=params, timeout=8)
-        response.raise_for_status()
-        return response.json(), None
+        while len(all_data) < max_records:
+            url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+            headers = {
+                'apikey': SUPABASE_KEY,
+                'Authorization': f'Bearer {SUPABASE_KEY}',
+                'Content-Type': 'application/json',
+                'Range': f'{offset}-{offset + page_size - 1}'
+            }
+            params = {
+                'select': select_fields
+            }
+            
+            response = requests.get(url, headers=headers, params=params, timeout=8)
+            response.raise_for_status()
+            data = response.json()
+            
+            if not data:
+                break
+            
+            all_data.extend(data)
+            
+            if len(data) < page_size:
+                break
+            
+            offset += page_size
+        
+        return all_data, None
     except Exception as e:
         return None, str(e)
 
