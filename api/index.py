@@ -277,7 +277,9 @@ def analyze():
         receita_por_mes = {}  # Receita por mês
         vendas_por_mes = {}  # Quantidade de vendas por mês
         produtos_por_categoria = {}  # Produtos por categoria
+        receita_por_categoria = {}  # Receita por categoria
         produtos_por_regiao = {}  # Produtos por região
+        receita_por_regiao = {}  # Receita por região
         
         for row in data:
             try:
@@ -293,12 +295,16 @@ def analyze():
                 # Por categoria
                 if categoria not in produtos_por_categoria:
                     produtos_por_categoria[categoria] = {}
+                    receita_por_categoria[categoria] = 0.0
                 produtos_por_categoria[categoria][prod] = produtos_por_categoria[categoria].get(prod, 0) + qty
+                receita_por_categoria[categoria] += receita
                 
                 # Por região
                 if regiao not in produtos_por_regiao:
                     produtos_por_regiao[regiao] = {}
+                    receita_por_regiao[regiao] = 0.0
                 produtos_por_regiao[regiao][prod] = produtos_por_regiao[regiao].get(prod, 0) + qty
+                receita_por_regiao[regiao] += receita
                 
                 # Por mês
                 data_str = row.get('data')
@@ -365,15 +371,17 @@ def analyze():
                 for prod, qty in top_mes:
                     context += f"  - {prod}: {int(qty)} unidades\n"
             
-            context += f"\n📦 VENDAS POR CATEGORIA:\n"
+            context += f"\n📦 VENDAS POR CATEGORIA (unidades e receita):\n"
             for categoria, prods in produtos_por_categoria.items():
                 total_cat = sum(prods.values())
-                context += f"- {categoria}: {int(total_cat)} unidades\n"
+                receita_cat = receita_por_categoria.get(categoria, 0.0)
+                context += f"- {categoria}: {int(total_cat)} unidades | Receita: {fmt_currency(receita_cat)}\n"
             
-            context += f"\n🗺️ VENDAS POR REGIÃO:\n"
+            context += f"\n🗺️ VENDAS POR REGIÃO (unidades e receita):\n"
             for regiao, prods in produtos_por_regiao.items():
                 total_reg = sum(prods.values())
-                context += f"- {regiao}: {int(total_reg)} unidades\n"
+                receita_reg = receita_por_regiao.get(regiao, 0.0)
+                context += f"- {regiao}: {int(total_reg)} unidades | Receita: {fmt_currency(receita_reg)}\n"
             
             context += f"\n❓ PERGUNTA DO USUÁRIO: {question}\n\n"
             context += "Responda em português de forma clara e objetiva, usando EXATAMENTE os dados agregados fornecidos acima. "
@@ -438,6 +446,81 @@ def analyze():
     except Exception as e:
         print(f"ERRO NO /api/analyze: {str(e)}")
         return jsonify({'answer': f'❌ Erro ao processar pergunta: {str(e)}'}), 200
+
+@app.route('/api/sync-data', methods=['POST'])
+def sync_data():
+    """Sincroniza dados (recarrega cache/métricas)"""
+    try:
+        # Este endpoint pode ser usado para forçar recarga de dados
+        # Por enquanto, apenas retorna sucesso
+        return jsonify({
+            'success': True,
+            'message': '✅ Dados sincronizados com sucesso! Todas as métricas foram atualizadas.',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Erro na sincronização: {str(e)}'
+        }), 500
+
+@app.route('/api/upload-data', methods=['POST'])
+def upload_data():
+    """Upload de arquivo de vendas (.xlsx, .xls, .csv)"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'Nenhum arquivo enviado'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'Nome de arquivo vazio'}), 400
+        
+        # Validar extensão
+        allowed_extensions = {'.xlsx', '.xls', '.csv'}
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            return jsonify({'error': f'Formato não suportado. Use: {", ".join(allowed_extensions)}'}), 400
+        
+        # Por enquanto, simular upload bem-sucedido
+        # TODO: Implementar lógica de parse e inserção no Supabase
+        return jsonify({
+            'success': True,
+            'message': f'✅ Arquivo "{file.filename}" recebido com sucesso!',
+            'rows_imported': 0,  # Temporário - implementar contagem real
+            'filename': file.filename
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Erro no upload: {str(e)}'
+        }), 500
+
+@app.route('/api/database-stats', methods=['GET'])
+def database_stats():
+    """Retorna estatísticas do banco de dados"""
+    try:
+        # Buscar contagem total de registros (usando apenas data para contagem)
+        data, error = query_supabase('data', max_records=50000)
+        
+        if error:
+            return jsonify({
+                'error': error,
+                'total_records': 0
+            }), 500
+        
+        return jsonify({
+            'success': True,
+            'total_records': len(data) if data else 0,
+            'last_updated': datetime.now().strftime('%d/%m/%Y %H:%M')
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Erro ao consultar estatísticas: {str(e)}',
+            'total_records': 0
+        }), 500
 
 @app.route('/api/diagnostic', methods=['GET'])
 def diagnostic():

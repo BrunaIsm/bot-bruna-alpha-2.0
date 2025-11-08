@@ -85,3 +85,4 @@ coverage.xml
 *.sw?
 
 start-backend.sh
+.vercel
