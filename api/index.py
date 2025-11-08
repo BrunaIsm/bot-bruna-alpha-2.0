@@ -248,7 +248,7 @@ def monthly_metrics():
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
-    """Análise inteligente com Google Gemini AI"""
+    """Análise inteligente com Google Gemini AI usando TODOS os dados agregados"""
     try:
         body = request.get_json()
         question = body.get('message', '')
@@ -256,15 +256,70 @@ def analyze():
         if not question:
             return jsonify({'answer': '❌ Por favor, faça uma pergunta.'}), 200
         
-        # Buscar dados de vendas (limitar a 200 registros para o Gemini)
-        data, error = query_supabase('produto,quantidade,receita_total,data,categoria,regiao', max_records=200)
+        # Buscar TODOS os dados para análise precisa
+        data, error = query_supabase('produto,quantidade,receita_total,data,categoria,regiao')
         
         if error or not data:
             return jsonify({
                 'answer': '❌ Não foi possível acessar os dados. Verifique a conexão com o Supabase.'
             }), 200
         
-        # TENTATIVA 1: Usar Gemini AI
+        # AGREGAR TODOS OS DADOS (resumo compacto para o Gemini)
+        meses_pt = {
+            1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril',
+            5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto',
+            9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'
+        }
+        
+        # Agregações
+        produtos_total = {}  # Total geral de cada produto
+        produtos_por_mes = {}  # Produtos por mês
+        receita_por_mes = {}  # Receita por mês
+        vendas_por_mes = {}  # Quantidade de vendas por mês
+        produtos_por_categoria = {}  # Produtos por categoria
+        produtos_por_regiao = {}  # Produtos por região
+        
+        for row in data:
+            try:
+                prod = row.get('produto', 'Desconhecido')
+                qty = float(str(row.get('quantidade', 0)).replace(',', '.'))
+                receita = float(str(row.get('receita_total', 0)).replace(',', '.'))
+                categoria = row.get('categoria', 'Sem categoria')
+                regiao = row.get('regiao', 'Sem região')
+                
+                # Total geral de produtos
+                produtos_total[prod] = produtos_total.get(prod, 0) + qty
+                
+                # Por categoria
+                if categoria not in produtos_por_categoria:
+                    produtos_por_categoria[categoria] = {}
+                produtos_por_categoria[categoria][prod] = produtos_por_categoria[categoria].get(prod, 0) + qty
+                
+                # Por região
+                if regiao not in produtos_por_regiao:
+                    produtos_por_regiao[regiao] = {}
+                produtos_por_regiao[regiao][prod] = produtos_por_regiao[regiao].get(prod, 0) + qty
+                
+                # Por mês
+                data_str = row.get('data')
+                if data_str:
+                    dt = datetime.fromisoformat(str(data_str)[:10])
+                    mes_nome = f"{meses_pt[dt.month]}/{dt.year}"
+                    
+                    # Produtos por mês
+                    if mes_nome not in produtos_por_mes:
+                        produtos_por_mes[mes_nome] = {}
+                    produtos_por_mes[mes_nome][prod] = produtos_por_mes[mes_nome].get(prod, 0) + qty
+                    
+                    # Receita por mês
+                    receita_por_mes[mes_nome] = receita_por_mes.get(mes_nome, 0.0) + receita
+                    
+                    # Vendas por mês
+                    vendas_por_mes[mes_nome] = vendas_por_mes.get(mes_nome, 0) + 1
+            except:
+                continue
+        
+        # TENTATIVA 1: Usar Gemini AI com dados agregados
         try:
             # Import dinâmico (só carrega quando necessário)
             import google.generativeai as genai
@@ -276,18 +331,41 @@ def analyze():
             genai.configure(api_key=gemini_key)
             model = genai.GenerativeModel('gemini-2.0-flash-exp')
             
-            # Preparar contexto com dados
-            context = "Você é um analista de vendas especializado. Aqui estão alguns dados de vendas:\n\n"
-            for i, row in enumerate(data[:50]):  # Primeiros 50 registros
-                context += f"- {row.get('data', 'N/A')}: {row.get('produto', 'N/A')}, "
-                context += f"Qtd: {row.get('quantidade', 0)}, "
-                context += f"Receita: R$ {row.get('receita_total', 0)}, "
-                context += f"Categoria: {row.get('categoria', 'N/A')}, "
-                context += f"Região: {row.get('regiao', 'N/A')}\n"
+            # Preparar contexto com DADOS AGREGADOS (muito mais compacto e preciso)
+            def fmt_currency(value):
+                return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
             
-            context += f"\nTotal de registros disponíveis: {len(data)}\n\n"
-            context += f"Pergunta do usuário: {question}\n\n"
-            context += "Responda em português de forma clara e objetiva, usando os dados fornecidos. "
+            context = f"""Você é um analista de vendas especializado. Aqui está o RESUMO COMPLETO de {len(data)} registros de vendas de 2024:
+
+📊 RECEITA POR MÊS:
+"""
+            for mes in sorted(receita_por_mes.keys()):
+                context += f"- {mes}: {fmt_currency(receita_por_mes[mes])} ({vendas_por_mes[mes]} vendas)\n"
+            
+            context += f"\n🏆 TOP 10 PRODUTOS MAIS VENDIDOS (quantidade total):\n"
+            top_produtos = sorted(produtos_total.items(), key=lambda x: x[1], reverse=True)[:10]
+            for prod, qty in top_produtos:
+                context += f"- {prod}: {int(qty)} unidades\n"
+            
+            context += f"\n📅 PRODUTOS MAIS VENDIDOS POR MÊS:\n"
+            for mes in sorted(produtos_por_mes.keys()):
+                top_mes = sorted(produtos_por_mes[mes].items(), key=lambda x: x[1], reverse=True)[:3]
+                context += f"\n{mes}:\n"
+                for prod, qty in top_mes:
+                    context += f"  - {prod}: {int(qty)} unidades\n"
+            
+            context += f"\n📦 VENDAS POR CATEGORIA:\n"
+            for categoria, prods in produtos_por_categoria.items():
+                total_cat = sum(prods.values())
+                context += f"- {categoria}: {int(total_cat)} unidades\n"
+            
+            context += f"\n🗺️ VENDAS POR REGIÃO:\n"
+            for regiao, prods in produtos_por_regiao.items():
+                total_reg = sum(prods.values())
+                context += f"- {regiao}: {int(total_reg)} unidades\n"
+            
+            context += f"\n❓ PERGUNTA DO USUÁRIO: {question}\n\n"
+            context += "Responda em português de forma clara e objetiva, usando EXATAMENTE os dados agregados fornecidos acima. "
             context += "Se a pergunta for sobre um mês específico, analise apenas os dados daquele mês. "
             context += "Sempre formate valores monetários como R$ X.XXX,XX."
             
