@@ -1,0 +1,4 @@
+Data,ID_Transacao,Produto,Categoria,Regiao,Quantidade,Preco_Unitario,Receita_Total
+15/01/2024,TEST001,Produto Teste A,Eletrônicos,Sul,2,500.00,1000.00
+16/01/2024,TEST002,Produto Teste B,Periféricos,Norte,5,150.50,752.50
+17/01/2024,TEST003,Produto Teste C,Acessórios,Sudeste,10,25.00,250.00

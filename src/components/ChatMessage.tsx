@@ -1,5 +1,6 @@
-import { Bot, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MessageAvatar } from "./MessageAvatar";
+import { CopyButton } from "./CopyButton";
 
 interface ChatMessageProps {
   role: "user" | "assistant";
@@ -41,38 +42,38 @@ export const ChatMessage = ({ role, content }: ChatMessageProps) => {
         isBot ? "justify-start" : "justify-end"
       )}
     >
-      {isBot && (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-primary shadow-md transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg">
-          <Bot className="h-5 w-5 text-primary-foreground" />
-        </div>
-      )}
+      {isBot && <MessageAvatar isAi={true} />}
       
-      <div
-        className={cn(
-          "max-w-[85%] rounded-2xl px-5 py-3.5 transition-all duration-300",
-          isBot
-            ? "bg-card/95 backdrop-blur-sm text-card-foreground border border-border/40 shadow-md hover:shadow-xl hover:border-border/60"
-            : "bg-gradient-primary text-primary-foreground shadow-lg hover:shadow-xl hover:opacity-95"
-        )}
-      >
-        {isBot ? (
-          <div 
-            className="text-sm leading-relaxed prose prose-sm max-w-none
-                       prose-strong:text-primary prose-strong:font-semibold
-                       prose-p:my-0 prose-p:leading-relaxed
-                       prose-p:text-foreground"
-            dangerouslySetInnerHTML={{ __html: formattedContent }}
-          />
-        ) : (
-          <p className="text-sm leading-relaxed whitespace-pre-wrap font-medium">{content}</p>
+      <div className="flex flex-col gap-1 max-w-[85%]">
+        <div
+          className={cn(
+            "rounded-2xl px-5 py-3.5 transition-all duration-300",
+            isBot
+              ? "bg-card/95 backdrop-blur-sm text-card-foreground border border-border/40 shadow-md hover:shadow-xl hover:border-border/60"
+              : "bg-gradient-primary text-primary-foreground shadow-lg hover:shadow-xl hover:opacity-95"
+          )}
+        >
+          {isBot ? (
+            <div 
+              className="text-sm leading-relaxed prose prose-sm max-w-none
+                         prose-strong:text-primary prose-strong:font-semibold
+                         prose-p:my-0 prose-p:leading-relaxed
+                         prose-p:text-foreground"
+              dangerouslySetInnerHTML={{ __html: formattedContent }}
+            />
+          ) : (
+            <p className="text-sm leading-relaxed whitespace-pre-wrap font-medium">{content}</p>
+          )}
+        </div>
+        
+        {isBot && (
+          <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <CopyButton text={content} />
+          </div>
         )}
       </div>
 
-      {!isBot && (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary/80 backdrop-blur-sm shadow-md transition-all duration-300 group-hover:scale-110">
-          <User className="h-5 w-5 text-secondary-foreground" />
-        </div>
-      )}
+      {!isBot && <MessageAvatar isAi={false} />}
     </div>
   );
 };

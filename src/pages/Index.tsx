@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
-import { Send, TrendingUp, DollarSign, ShoppingCart, BarChart3, FileSpreadsheet, RefreshCw, Calendar, Package } from "lucide-react";
+import { Send, DollarSign, ShoppingCart, FileSpreadsheet, RefreshCw, Calendar, Package, Trash2, MessageSquare, BarChart3, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "@/components/ChatMessage";
 import { FileUpload } from "@/components/FileUpload";
 import { MetricsCard } from "@/components/MetricsCard";
+import { MetricsSkeleton } from "@/components/MetricsSkeleton";
+import { TypingIndicator } from "@/components/TypingIndicator";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
 interface Message {
@@ -254,7 +257,18 @@ const Index = () => {
     }
   };
 
+  const handleClearChat = () => {
+    setMessages([
+      {
+        role: "assistant",
+        content: "Olá! Sou seu analista de vendas inteligente. Tenho acesso ao banco de dados de vendas no Supabase. Pergunte-me sobre vendas, tendências, produtos mais vendidos, ticket médio e muito mais!",
+      },
+    ]);
+    setShowSuggestions(true);
+    toast.success("Conversa limpa!");
+  };
 
+  const userMessagesCount = messages.filter(m => m.role === "user").length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/10 relative overflow-hidden">
@@ -282,32 +296,60 @@ const Index = () => {
               </div>
             </div>
             
-            {/* Info Badge */}
-            {metricsData && (
-              <div className="hidden md:flex items-center gap-2 px-4 py-2 rounded-xl bg-muted/50 border border-border/50">
-                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-xs font-medium text-muted-foreground">
-                  {metricsData.records_analyzed.toLocaleString()} registros • Atualizado {metricsData.last_updated.split(' ')[1]}
-                </span>
-              </div>
-            )}
+            <div className="flex items-center gap-3">
+              {/* Contador de mensagens */}
+              {userMessagesCount > 0 && (
+                <Badge variant="secondary" className="gap-2">
+                  <MessageSquare className="h-3 w-3" />
+                  {userMessagesCount} {userMessagesCount === 1 ? 'pergunta' : 'perguntas'}
+                </Badge>
+              )}
+              
+              {/* Info Badge */}
+              {metricsData && (
+                <div className="hidden md:flex items-center gap-2 px-4 py-2 rounded-xl bg-muted/50 border border-border/50">
+                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {metricsData.records_analyzed.toLocaleString()} registros • Atualizado {metricsData.last_updated.split(' ')[1]}
+                  </span>
+                </div>
+              )}
+              
+              {/* Botão limpar conversa */}
+              {messages.length > 1 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearChat}
+                  className="gap-2"
+                  title="Limpar conversa"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span className="hidden sm:inline">Limpar</span>
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </header>
 
       <div className="container mx-auto px-4 py-8">
         {/* Metrics Dashboard com hover effects */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 animate-fade-in">
-          {metrics.map((metric, index) => (
-            <div 
-              key={index}
-              className="transform transition-all duration-300 hover:scale-105 hover:z-10"
-              style={{ animationDelay: `${index * 100}ms` }}
-            >
-              <MetricsCard {...metric} />
-            </div>
-          ))}
-        </div>
+        {isLoadingMetrics ? (
+          <MetricsSkeleton />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 animate-fade-in">
+            {metrics.map((metric, index) => (
+              <div 
+                key={index}
+                className="transform transition-all duration-300 hover:scale-105 hover:z-10"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                <MetricsCard {...metric} />
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Chat Area - Mais moderno */}
@@ -350,14 +392,7 @@ const Index = () => {
                     <ChatMessage key={index} {...message} />
                   ))}
                   
-                  {isLoading && (
-                    <div className="flex gap-2 items-center text-muted-foreground px-4">
-                      <div className="h-2 w-2 rounded-full bg-primary animate-bounce" />
-                      <div className="h-2 w-2 rounded-full bg-accent animate-bounce [animation-delay:0.2s]" />
-                      <div className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:0.4s]" />
-                      <span className="text-xs ml-2">Analisando dados...</span>
-                    </div>
-                  )}
+                  {isLoading && <TypingIndicator />}
                 </div>
               </ScrollArea>
 
