@@ -568,7 +568,8 @@ def upload_data():
             return jsonify({'error': 'Nenhuma linha válida encontrada após validação'}), 400
         
         # Adicionar metadados
-        df['mes_origem'] = os.path.splitext(file.filename)[0]
+        filename_without_ext = os.path.splitext(file.filename)[0]
+        df['mes_origem'] = filename_without_ext
         df['created_at'] = datetime.now().isoformat()
         
         # Converter para formato JSON para inserção no Supabase
@@ -579,7 +580,7 @@ def upload_data():
             if pd.notna(record.get('data')):
                 record['data'] = record['data'].strftime('%Y-%m-%d')
         
-        # Inserir no Supabase em lotes (max 1000 por vez)
+        # VERIFICAR SE JÁ EXISTE ARQUIVO COM MESMO NOME (evitar duplicatas)
         url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
         headers = {
             'apikey': SUPABASE_KEY,
@@ -588,6 +589,26 @@ def upload_data():
             'Prefer': 'return=minimal'
         }
         
+        # Verificar se já existe dados deste arquivo
+        check_url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
+        check_params = {
+            'select': 'mes_origem',
+            'mes_origem': f'eq.{filename_without_ext}',
+            'limit': 1
+        }
+        check_response = requests.get(check_url, headers=headers, params=check_params, timeout=5)
+        
+        rows_deleted = 0
+        if check_response.status_code == 200 and check_response.json():
+            # Arquivo já existe! Deletar dados antigos antes de inserir novos
+            delete_params = {'mes_origem': f'eq.{filename_without_ext}'}
+            delete_response = requests.delete(url, headers=headers, params=delete_params, timeout=10)
+            
+            if delete_response.status_code == 204:
+                rows_deleted = len(check_response.json())
+                print(f"✅ Deletados dados antigos do arquivo '{filename_without_ext}'")
+        
+        # Inserir no Supabase em lotes (max 1000 por vez)
         total_inserted = 0
         batch_size = 1000
         
@@ -600,10 +621,17 @@ def upload_data():
             
             total_inserted += len(batch)
         
+        # Mensagem personalizada
+        if rows_deleted > 0:
+            message = f'✅ Arquivo atualizado! {total_inserted} linhas inseridas (substituiu dados anteriores)'
+        else:
+            message = f'✅ {total_inserted} linhas importadas com sucesso!'
+        
         return jsonify({
             'success': True,
-            'message': f'✅ {total_inserted} linhas importadas com sucesso!',
+            'message': message,
             'rows_imported': total_inserted,
+            'rows_replaced': rows_deleted > 0,
             'filename': file.filename,
             'columns_found': list(df.columns)
         }), 200
