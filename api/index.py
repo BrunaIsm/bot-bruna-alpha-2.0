@@ -431,21 +431,201 @@ NUNCA use este formato ERRADO:
             # FALLBACK: Análise simples sem IA
             question_lower = question.lower()
             
-            # Detectar mês na pergunta
-            meses = {
-                'janeiro': '-01-', 'fevereiro': '-02-', 'março': '-03-', 'marco': '-03-',
-                'abril': '-04-', 'maio': '-05-', 'junho': '-06-',
-                'julho': '-07-', 'agosto': '-08-', 'setembro': '-09-',
-                'outubro': '-10-', 'novembro': '-11-', 'dezembro': '-12-'
+            # Detectar meses na pergunta
+            meses_nomes = {
+                'janeiro': ('Janeiro/2024', '-01-'), 'fevereiro': ('Fevereiro/2024', '-02-'), 
+                'março': ('Março/2024', '-03-'), 'marco': ('Março/2024', '-03-'),
+                'abril': ('Abril/2024', '-04-'), 'maio': ('Maio/2024', '-05-'), 
+                'junho': ('Junho/2024', '-06-'), 'julho': ('Julho/2024', '-07-'), 
+                'agosto': ('Agosto/2024', '-08-'), 'setembro': ('Setembro/2024', '-09-'),
+                'outubro': ('Outubro/2024', '-10-'), 'novembro': ('Novembro/2024', '-11-'), 
+                'dezembro': ('Dezembro/2024', '-12-')
             }
             
+            # Detectar se é comparação entre meses
+            meses_encontrados = []
+            for nome_mes, (mes_completo, filtro) in meses_nomes.items():
+                if nome_mes in question_lower:
+                    meses_encontrados.append((nome_mes, mes_completo, filtro))
+            
+            # Se pergunta sobre COMPARAÇÃO entre meses (detecta 2+ meses OU palavra "compare")
+            if (len(meses_encontrados) >= 2 or 
+                (len(meses_encontrados) >= 1 and any(word in question_lower for word in ['compare', 'compara', 'comparação', 'diferença', 'versus', 'vs']))):
+                
+                def fmt_currency(value):
+                    return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                
+                # Se tem exatamente 2 meses, fazer comparação específica
+                if len(meses_encontrados) == 2:
+                    mes1_nome, mes1_completo, mes1_filtro = meses_encontrados[0]
+                    mes2_nome, mes2_completo, mes2_filtro = meses_encontrados[1]
+                    
+                    receita_mes1 = receita_por_mes.get(mes1_completo, 0.0)
+                    receita_mes2 = receita_por_mes.get(mes2_completo, 0.0)
+                    vendas_mes1 = vendas_por_mes.get(mes1_completo, 0)
+                    vendas_mes2 = vendas_por_mes.get(mes2_completo, 0)
+                    
+                    diferenca = receita_mes2 - receita_mes1
+                    percentual = ((receita_mes2 - receita_mes1) / receita_mes1 * 100) if receita_mes1 > 0 else 0
+                    
+                    vencedor = mes2_completo if receita_mes2 > receita_mes1 else mes1_completo
+                    emoji_resultado = "📈" if diferenca > 0 else "📉"
+                    texto_resultado = "superior" if diferenca > 0 else "inferior"
+                    
+                    answer = f"""📊 **COMPARAÇÃO DE FATURAMENTO** 📊
+
+## {mes1_completo.split('/')[0]} vs {mes2_completo.split('/')[0]}
+
+### 📅 {mes1_completo}
+💰 Receita: **{fmt_currency(receita_mes1)}**
+🛒 Vendas: {vendas_mes1} transações
+
+### 📅 {mes2_completo}
+💰 Receita: **{fmt_currency(receita_mes2)}**
+🛒 Vendas: {vendas_mes2} transações
+
+---
+
+### {emoji_resultado} Resultado da Comparação
+
+• **Diferença:** {fmt_currency(abs(diferenca))}
+• **Variação:** {abs(percentual):.1f}% {texto_resultado}
+• **Vencedor:** 🏆 **{vencedor}**
+
+"""
+                    # Adicionar top 3 produtos de cada mês
+                    if mes1_completo in produtos_por_mes and mes2_completo in produtos_por_mes:
+                        top_mes1 = sorted(produtos_por_mes[mes1_completo].items(), key=lambda x: x[1], reverse=True)[:3]
+                        top_mes2 = sorted(produtos_por_mes[mes2_completo].items(), key=lambda x: x[1], reverse=True)[:3]
+                        
+                        answer += f"### 🏆 Top 3 Produtos - {mes1_completo.split('/')[0]}\n"
+                        for i, (prod, qty) in enumerate(top_mes1, 1):
+                            answer += f"{i}. {prod}: {int(qty)} unidades\n"
+                        
+                        answer += f"\n### 🏆 Top 3 Produtos - {mes2_completo.split('/')[0]}\n"
+                        for i, (prod, qty) in enumerate(top_mes2, 1):
+                            answer += f"{i}. {prod}: {int(qty)} unidades\n"
+                    
+                    return jsonify({'answer': answer}), 200
+                
+                # Se tem apenas 1 mês mencionado mas pede comparação, mostrar contexto geral
+                elif len(meses_encontrados) == 1:
+                    mes_nome, mes_completo, mes_filtro = meses_encontrados[0]
+                    
+                    # Mostrar ranking de todos os meses com destaque no mês mencionado
+                    meses_ordenados = sorted(receita_por_mes.items(), key=lambda x: x[1], reverse=True)
+                    
+                    answer = f"""📊 **COMPARAÇÃO MENSAL - Contexto de {mes_completo}** 📊
+
+### 📊 Ranking de Todos os Meses:
+
+"""
+                    for i, (mes, receita) in enumerate(meses_ordenados, 1):
+                        vendas = vendas_por_mes.get(mes, 0)
+                        emoji = "⭐" if mes == mes_completo else "📍"
+                        destaque = " **← MÊS CONSULTADO**" if mes == mes_completo else ""
+                        answer += f"{emoji} **{i}º {mes}**: {fmt_currency(receita)} ({vendas} vendas){destaque}\n"
+                    
+                    return jsonify({'answer': answer}), 200
+            
+            # Detectar mês único para filtros simples
             mes_filtro = None
             mes_nome = None
-            for nome_mes, filtro in meses.items():
-                if nome_mes in question_lower:
+            for nome_mes, (mes_completo, filtro) in meses_nomes.items():
+                if nome_mes in question_lower and len(meses_encontrados) <= 1:
                     mes_filtro = filtro
                     mes_nome = nome_mes.capitalize()
                     break
+            
+            # IMPORTANTE: Verificar "quantos produtos" ANTES de "produto mais vendido"
+            # Se pergunta sobre QUANTOS PRODUTOS ou DIVERSIDADE
+            if any(word in question_lower for word in ['quantos produtos', 'quais produtos', 'produtos diferentes', 'variedade', 'diversidade']):
+                def fmt_currency(value):
+                    return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                
+                qtd_produtos = len(produtos_total)
+                total_unidades = sum(produtos_total.values())
+                
+                # Top 10 produtos
+                top_10 = sorted(produtos_total.items(), key=lambda x: x[1], reverse=True)[:10]
+                
+                answer = f"""🛒 **DIVERSIDADE DE PRODUTOS** 🛒
+
+## 📦 Portfólio Completo
+
+Foram vendidos **{qtd_produtos} produtos diferentes** em 2024!
+📊 Total de unidades vendidas: **{int(total_unidades)}**
+
+---
+
+### 🏆 Top 10 Produtos Mais Vendidos:
+
+"""
+                for i, (produto, qty) in enumerate(top_10, 1):
+                    emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}️⃣"
+                    answer += f"{emoji} **{produto}**: {int(qty)} unidades\n"
+                
+                # Média de vendas por produto
+                media_por_produto = total_unidades / qtd_produtos if qtd_produtos > 0 else 0
+                answer += f"\n💡 **Insight:** Média de **{int(media_por_produto)} unidades** por produto!"
+                
+                return jsonify({'answer': answer}), 200
+            
+            # Se pergunta sobre TOP 5 ou RANKING
+            if any(word in question_lower for word in ['top 5', 'top5', 'top 10', 'top10', 'ranking', 'liste']):
+                # Top produtos por quantidade
+                top_produtos = sorted(produtos_total.items(), key=lambda x: x[1], reverse=True)[:5]
+                
+                answer = f"""🏆 **TOP 5 PRODUTOS MAIS VENDIDOS** 🏆
+
+"""
+                for i, (produto, qty) in enumerate(top_produtos, 1):
+                    emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "📍"
+                    answer += f"{emoji} **{i}º lugar: {produto}**\n   📦 {int(qty)} unidades vendidas\n\n"
+                
+                total_top5 = sum(qty for _, qty in top_produtos)
+                total_geral = sum(produtos_total.values())
+                percentual = (total_top5 / total_geral * 100) if total_geral > 0 else 0
+                
+                answer += f"💡 **Insight:** Estes 5 produtos representam **{percentual:.1f}%** de todas as vendas!"
+                
+                return jsonify({'answer': answer}), 200
+            
+            # Se pergunta sobre REGIÃO
+            if any(word in question_lower for word in ['região', 'regiao', 'regiões', 'regioes', 'regional']):
+                def fmt_currency(value):
+                    return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                
+                if receita_por_regiao:
+                    # Ordenar regiões por receita
+                    regioes_ordenadas = sorted(receita_por_regiao.items(), key=lambda x: x[1], reverse=True)
+                    
+                    top_regiao, top_receita = regioes_ordenadas[0]
+                    
+                    answer = f"""🗺️ **ANÁLISE POR REGIÃO** 🗺️
+
+## 🏆 Região Campeã em Receita
+
+**{top_regiao}**
+💰 Receita total: **{fmt_currency(top_receita)}**
+
+---
+
+### 📊 Ranking Completo de Receitas por Região:
+
+"""
+                    for i, (regiao, receita) in enumerate(regioes_ordenadas, 1):
+                        emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "📍"
+                        unidades = sum(produtos_por_regiao.get(regiao, {}).values())
+                        answer += f"{emoji} **{regiao}**: {fmt_currency(receita)} ({int(unidades)} unidades)\n"
+                    
+                    # Calcular participação percentual
+                    receita_total = sum(receita_por_regiao.values())
+                    percentual = (top_receita / receita_total * 100) if receita_total > 0 else 0
+                    
+                    answer += f"\n💡 **Insight:** A região {top_regiao} representa **{percentual:.1f}%** da receita total!"
+                    
+                    return jsonify({'answer': answer}), 200
             
             # Se pergunta sobre produto mais vendido
             if 'vendido' in question_lower or 'produto' in question_lower:
@@ -487,6 +667,103 @@ NUNCA use este formato ERRADO:
                         answer += f"{emoji} **{prod}**: {int(q)} unidades\n"
                     
                     return jsonify({'answer': answer}), 200
+            
+            # Se pergunta sobre CATEGORIA
+            if any(word in question_lower for word in ['categoria', 'categorias', 'tipo', 'tipos']):
+                def fmt_currency(value):
+                    return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                
+                if receita_por_categoria:
+                    # Ordenar categorias por receita
+                    categorias_ordenadas = sorted(receita_por_categoria.items(), key=lambda x: x[1], reverse=True)
+                    
+                    top_categoria, top_receita = categorias_ordenadas[0]
+                    
+                    answer = f"""📦 **ANÁLISE POR CATEGORIA** 📦
+
+## 🏆 Categoria Líder em Receita
+
+**{top_categoria}**
+💰 Receita total: **{fmt_currency(top_receita)}**
+
+---
+
+### 📊 Ranking Completo de Receitas por Categoria:
+
+"""
+                    for i, (categoria, receita) in enumerate(categorias_ordenadas, 1):
+                        emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "📍"
+                        unidades = sum(produtos_por_categoria.get(categoria, {}).values())
+                        answer += f"{emoji} **{categoria}**: {fmt_currency(receita)} ({int(unidades)} unidades)\n"
+                    
+                    # Calcular participação percentual
+                    receita_total = sum(receita_por_categoria.values())
+                    percentual = (top_receita / receita_total * 100) if receita_total > 0 else 0
+                    
+                    answer += f"\n💡 **Insight:** A categoria {top_categoria} representa **{percentual:.1f}%** da receita total!"
+                    
+                    return jsonify({'answer': answer}), 200
+            
+            # Se pergunta sobre MELHOR MÊS ou RECEITA POR MÊS
+            if any(word in question_lower for word in ['mês', 'mes', 'mensal', 'meses', 'melhor mês', 'melhor mes']):
+                def fmt_currency(value):
+                    return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                
+                if receita_por_mes:
+                    # Ordenar meses por receita
+                    meses_ordenados = sorted(receita_por_mes.items(), key=lambda x: x[1], reverse=True)
+                    
+                    melhor_mes, melhor_receita = meses_ordenados[0]
+                    
+                    answer = f"""📅 **ANÁLISE MENSAL DE VENDAS** 📅
+
+## 🏆 Melhor Mês do Ano
+
+**{melhor_mes}**
+💰 Receita: **{fmt_currency(melhor_receita)}**
+
+---
+
+### 📊 Receita de Todos os Meses:
+
+"""
+                    for mes, receita in sorted(receita_por_mes.items()):
+                        vendas = vendas_por_mes.get(mes, 0)
+                        emoji = "🌟" if mes == melhor_mes else "📍"
+                        answer += f"{emoji} **{mes}**: {fmt_currency(receita)} ({vendas} vendas)\n"
+                    
+                    receita_total = sum(receita_por_mes.values())
+                    answer += f"\n💰 **Receita total do ano:** {fmt_currency(receita_total)}"
+                    
+                    return jsonify({'answer': answer}), 200
+            
+            # Se pergunta sobre RECEITA TOTAL DO ANO
+            if any(word in question_lower for word in ['receita total', 'faturamento total', 'quanto foi', 'total do ano']):
+                def fmt_currency(value):
+                    return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                
+                receita_total = sum(receita_por_mes.values())
+                qtd_vendas = sum(vendas_por_mes.values())
+                
+                answer = f"""💰 **RECEITA TOTAL DE 2024** 💰
+
+## 📊 Resultado Geral do Ano
+
+**Receita Total:** {fmt_currency(receita_total)}
+**Total de Vendas:** {qtd_vendas} transações
+**Quantidade de Produtos:** {len(produtos_total)} diferentes
+
+---
+
+### 📈 Distribuição Mensal:
+
+"""
+                for mes in sorted(receita_por_mes.keys()):
+                    receita = receita_por_mes[mes]
+                    percentual = (receita / receita_total * 100) if receita_total > 0 else 0
+                    answer += f"• **{mes}**: {fmt_currency(receita)} ({percentual:.1f}%)\n"
+                
+                return jsonify({'answer': answer}), 200
             
             # Resposta genérica
             answer = f"""🤔 **Hmm, preciso de mais contexto!**
