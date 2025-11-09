@@ -474,19 +474,19 @@ NUNCA use este formato ERRADO:
                     
                     answer = f"""📊 **COMPARAÇÃO DE FATURAMENTO** 📊
 
-## {mes1_completo.split('/')[0]} vs {mes2_completo.split('/')[0]}
+**{mes1_completo.split('/')[0]} vs {mes2_completo.split('/')[0]}**
 
-### 📅 {mes1_completo}
+📅 **{mes1_completo}**
 💰 Receita: **{fmt_currency(receita_mes1)}**
 🛒 Vendas: {vendas_mes1} transações
 
-### 📅 {mes2_completo}
+📅 **{mes2_completo}**
 💰 Receita: **{fmt_currency(receita_mes2)}**
 🛒 Vendas: {vendas_mes2} transações
 
 ---
 
-### {emoji_resultado} Resultado da Comparação
+{emoji_resultado} **Resultado da Comparação**
 
 • **Diferença:** {fmt_currency(abs(diferenca))}
 • **Variação:** {abs(percentual):.1f}% {texto_resultado}
@@ -498,11 +498,11 @@ NUNCA use este formato ERRADO:
                         top_mes1 = sorted(produtos_por_mes[mes1_completo].items(), key=lambda x: x[1], reverse=True)[:3]
                         top_mes2 = sorted(produtos_por_mes[mes2_completo].items(), key=lambda x: x[1], reverse=True)[:3]
                         
-                        answer += f"### 🏆 Top 3 Produtos - {mes1_completo.split('/')[0]}\n"
+                        answer += f"🏆 **Top 3 Produtos - {mes1_completo.split('/')[0]}**\n"
                         for i, (prod, qty) in enumerate(top_mes1, 1):
                             answer += f"{i}. {prod}: {int(qty)} unidades\n"
                         
-                        answer += f"\n### 🏆 Top 3 Produtos - {mes2_completo.split('/')[0]}\n"
+                        answer += f"\n🏆 **Top 3 Produtos - {mes2_completo.split('/')[0]}**\n"
                         for i, (prod, qty) in enumerate(top_mes2, 1):
                             answer += f"{i}. {prod}: {int(qty)} unidades\n"
                     
@@ -517,7 +517,7 @@ NUNCA use este formato ERRADO:
                     
                     answer = f"""📊 **COMPARAÇÃO MENSAL - Contexto de {mes_completo}** 📊
 
-### 📊 Ranking de Todos os Meses:
+📊 **Ranking de Todos os Meses:**
 
 """
                     for i, (mes, receita) in enumerate(meses_ordenados, 1):
@@ -551,14 +551,14 @@ NUNCA use este formato ERRADO:
                 
                 answer = f"""🛒 **DIVERSIDADE DE PRODUTOS** 🛒
 
-## 📦 Portfólio Completo
+📦 **Portfólio Completo**
 
 Foram vendidos **{qtd_produtos} produtos diferentes** em 2024!
 📊 Total de unidades vendidas: **{int(total_unidades)}**
 
 ---
 
-### 🏆 Top 10 Produtos Mais Vendidos:
+🏆 **Top 10 Produtos Mais Vendidos:**
 
 """
                 for i, (produto, qty) in enumerate(top_10, 1):
@@ -604,14 +604,12 @@ Foram vendidos **{qtd_produtos} produtos diferentes** em 2024!
                     
                     answer = f"""🗺️ **ANÁLISE POR REGIÃO** 🗺️
 
-## 🏆 Região Campeã em Receita
-
-**{top_regiao}**
+🏆 **Região Campeã em Receita:** **{top_regiao}**
 💰 Receita total: **{fmt_currency(top_receita)}**
 
 ---
 
-### 📊 Ranking Completo de Receitas por Região:
+📊 **Ranking Completo de Receitas por Região:**
 
 """
                     for i, (regiao, receita) in enumerate(regioes_ordenadas, 1):
@@ -653,14 +651,14 @@ Foram vendidos **{qtd_produtos} produtos diferentes** em 2024!
                     
                     answer = f"""🏆 **PRODUTO CAMPEÃO DE VENDAS** 🏆
 
-## 🥇 Produto Mais Vendido{periodo}
+🥇 **Produto Mais Vendido{periodo}**
 
 **{top_prod}**
 📦 **{qty} unidades** vendidas
 
 ---
 
-### 📊 Top 3 Produtos:
+📊 **Top 3 Produtos:**
 """
                     for i, (prod, q) in enumerate(top_3, 1):
                         emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
@@ -681,14 +679,12 @@ Foram vendidos **{qtd_produtos} produtos diferentes** em 2024!
                     
                     answer = f"""📦 **ANÁLISE POR CATEGORIA** 📦
 
-## 🏆 Categoria Líder em Receita
-
-**{top_categoria}**
+🏆 **Categoria Líder em Receita:** **{top_categoria}**
 💰 Receita total: **{fmt_currency(top_receita)}**
 
 ---
 
-### 📊 Ranking Completo de Receitas por Categoria:
+📊 **Ranking Completo de Receitas por Categoria:**
 
 """
                     for i, (categoria, receita) in enumerate(categorias_ordenadas, 1):
@@ -717,14 +713,12 @@ Foram vendidos **{qtd_produtos} produtos diferentes** em 2024!
                     
                     answer = f"""📅 **ANÁLISE MENSAL DE VENDAS** 📅
 
-## 🏆 Melhor Mês do Ano
-
-**{melhor_mes}**
+🏆 **Melhor Mês do Ano:** **{melhor_mes}**
 💰 Receita: **{fmt_currency(melhor_receita)}**
 
 ---
 
-### 📊 Receita de Todos os Meses:
+📊 **Receita de Todos os Meses:**
 
 """
                     for mes, receita in sorted(receita_por_mes.items()):
@@ -747,7 +741,7 @@ Foram vendidos **{qtd_produtos} produtos diferentes** em 2024!
                 
                 answer = f"""💰 **RECEITA TOTAL DE 2024** 💰
 
-## 📊 Resultado Geral do Ano
+📊 **Resultado Geral do Ano**
 
 **Receita Total:** {fmt_currency(receita_total)}
 **Total de Vendas:** {qtd_vendas} transações
@@ -755,7 +749,7 @@ Foram vendidos **{qtd_produtos} produtos diferentes** em 2024!
 
 ---
 
-### 📈 Distribuição Mensal:
+📈 **Distribuição Mensal:**
 
 """
                 for mes in sorted(receita_por_mes.keys()):
@@ -772,7 +766,7 @@ Recebi sua pergunta: *"{question}"*
 
 Infelizmente, estou com dificuldades para processar essa análise no momento. Mas não se preocupe! 💪
 
-### 💡 Experimente perguntas como:
+💡 **Experimente perguntas como:**
 
 🔹 **Por Produto:**
 • "Qual produto foi mais vendido em Janeiro?"
