@@ -86,3 +86,8 @@ coverage.xml
 
 start-backend.sh
 .vercel
+
+# Arquivos de teste local
+test_*.py
+test_*.json
+test_*.csv
